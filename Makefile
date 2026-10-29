@@ -3,7 +3,7 @@ ARCHS = arm64
 
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = MeituanRiderTweak
+LIBRARY_NAME = MeituanRiderTweak
 MeituanRiderTweak_FILES = Tweak.xm
 
 MeituanRiderTweak_CFLAGS = -fobjc-arc \
@@ -13,8 +13,6 @@ MeituanRiderTweak_CFLAGS = -fobjc-arc \
     -Wno-unused-variable
 
 MeituanRiderTweak_FRAMEWORKS = Foundation UIKit CoreLocation
+MeituanRiderTweak_INSTALL_PATH = /Library/MobileSubstrate/DynamicLibraries
 
-# 强制产出标准 MH_DYLIB（带 LC_ID_DYLIB），TrollFools 的 ldid 才能识别
-MeituanRiderTweak_LDFLAGS = -install_name @executable_path/Frameworks/MeituanRiderTweak.dylib
-
-include $(THEOS_MAKE_PATH)/tweak.mk
+include $(THEOS_MAKE_PATH)/library.mk
