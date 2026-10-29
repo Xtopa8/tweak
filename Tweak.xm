@@ -1,15 +1,27 @@
 // =============================================================
-//  MeituanRiderTweak.xm   v3.0
+//  MeituanRiderTweak.xm   v4.0
 //  目标：美团众包 iOS (banma_iOS_crowdsource) 13.7.9
 //  平台：iOS 16.3 arm64 / TrollStore + TrollFools
 //
-//  所有类名/方法名/参数类型均由砸壳二进制实测解析：
-//    __objc_classlist 12808 类 / __objc_catlist 1102 分类
+//  ===== 与安卓模块的同性质对照 =====
+//  安卓(宗师) hook 的类（从 dex 解密得出）：
+//    com.meituan.banma.matrix.imagetdetect.hybridschedule.ScheduleControlBlock
+//    com.meituan.banma.matrix.imagetdetect.hybridschedule.scheduler.HybridScheduler
+//    com.meituan.banma.trafficsafety.model.SpeedingDistractionModel
+//    com.meituan.banma.trafficsafety.model.PhoneHolderCheckModel
+//    com.meituan.banma.waybill.navi.view.aisafety.*
+//    com.meituan.banma.matrix.imagetdetect.*
 //
-//  越狱检测中的 8 个方法挂在未知系统类的 category 上，
-//  改用运行时全类扫描 swizzle，不猜测宿主类。
+//  iOS 对应：
+//    ScheduleControlBlock  -> BMPIoTTrafficLightSCB
+//    HybridScheduler       -> BMPIoTTrafficLightSCBManager
+//    SpeedingDistraction.. -> BMPHighSpeedingDistractedManager / DataItem
+//    PhoneHolderCheckModel -> BMPCaptureShelfCheckManager
+//    aisafety.*            -> BMPSpeechOverSpeedManager
+//    matrix.imagetdetect.* -> BMPIoTTrafficLightDispatchManager
 //
-//  【不修改定位数据】导航不受影响
+//  ===== 不改定位数据 =====
+//  不碰 CLLocation.speed / horizontalAccuracy -> 导航不偏
 // =============================================================
 
 #import <Foundation/Foundation.h>
@@ -18,41 +30,39 @@
 #import <objc/runtime.h>
 
 // =============================================================
-//  运行时工具：在全部已加载类中扫描指定 selector 并替换实现
+//  运行时工具：全类扫描替换 selector 实现
 // =============================================================
-
-static void swizzleSelectorEverywhere(SEL sel, BOOL returnBool, long long intValue, BOOL returnNil) {
+static void swizzleEverywhere(SEL sel, int kind) {
+    // kind: 0=BOOL(返回NO) 1=longlong(返回0) 2=id(返回nil)
     int count = objc_getClassList(NULL, 0);
     if (count <= 0) return;
     Class *classes = (Class *)malloc(sizeof(Class) * count);
     if (!classes) return;
     count = objc_getClassList(classes, count);
 
-    id (^nilBlock)(id) = ^id(id _s) { return nil; };
-    BOOL (^boolBlock)(id) = ^BOOL(id _s) { return returnBool ? NO : NO; };
-    long long (^intBlock)(id) = ^long long(id _s) { return intValue; };
+    id (^nilBlk)(id) = ^id(id _s) { return nil; };
+    BOOL (^boolBlk)(id) = ^BOOL(id _s) { return NO; };
+    long long (^llBlk)(id) = ^long long(id _s) { return 0; };
 
     for (int i = 0; i < count; i++) {
         Class cls = classes[i];
         if (!cls) continue;
-        // 实例方法
-        Class targets[2] = { cls, object_getClass(cls) };
-        for (int t = 0; t < 2; t++) {
-            Class tgt = targets[t];
+        Class pairs[2] = { cls, object_getClass(cls) };
+        for (int p = 0; p < 2; p++) {
+            Class tgt = pairs[p];
             if (!tgt) continue;
-            unsigned int mcount = 0;
-            Method *methods = class_copyMethodList(tgt, &mcount);
-            if (!methods) continue;
-            for (unsigned int j = 0; j < mcount; j++) {
-                if (method_getName(methods[j]) == sel) {
-                    IMP imp;
-                    if (returnNil)      imp = imp_implementationWithBlock(nilBlock);
-                    else if (returnBool) imp = imp_implementationWithBlock(boolBlock);
-                    else                 imp = imp_implementationWithBlock(intBlock);
-                    method_setImplementation(methods[j], imp);
+            unsigned int mc = 0;
+            Method *ms = class_copyMethodList(tgt, &mc);
+            if (!ms) continue;
+            for (unsigned int j = 0; j < mc; j++) {
+                if (method_getName(ms[j]) == sel) {
+                    IMP imp = (kind == 2) ? imp_implementationWithBlock(nilBlk)
+                            : (kind == 1) ? imp_implementationWithBlock(llBlk)
+                                          : imp_implementationWithBlock(boolBlk);
+                    method_setImplementation(ms[j], imp);
                 }
             }
-            free(methods);
+            free(ms);
         }
     }
     free(classes);
@@ -61,24 +71,18 @@ static void swizzleSelectorEverywhere(SEL sel, BOOL returnBool, long long intVal
 // =============================================================
 //  一、越狱检测绕过
 // =============================================================
-
-// 1.1 分类方法（宿主类未知，运行时全量扫描）
 static void patchJailbreakCategories(void) {
-    // 返回 BOOL 的
-    swizzleSelectorEverywhere(@selector(bmp_isJailbreak),      YES, 0, NO);
-    swizzleSelectorEverywhere(@selector(bmcs_isJailbreak),     YES, 0, NO);
-    swizzleSelectorEverywhere(@selector(cipf_isJailBreak),     YES, 0, NO);
-    swizzleSelectorEverywhere(@selector(cipf_isAppJailBreak),  YES, 0, NO);
-    swizzleSelectorEverywhere(@selector(dp_appIsJailbroken),   YES, 0, NO);
-    swizzleSelectorEverywhere(@selector(sakf_isJailBreak),     YES, 0, NO);
-    swizzleSelectorEverywhere(@selector(mpc_isJailBreak),      YES, 0, NO);
-    // 返回 long long 的
-    swizzleSelectorEverywhere(@selector(fake_isJailbreak),     NO,  0, NO);
-    // 返回 id 的
-    swizzleSelectorEverywhere(@selector(readJailBreakFile),    NO,  0, YES);
+    swizzleEverywhere(@selector(bmp_isJailbreak),      0);
+    swizzleEverywhere(@selector(bmcs_isJailbreak),     0);
+    swizzleEverywhere(@selector(cipf_isJailBreak),     0);
+    swizzleEverywhere(@selector(cipf_isAppJailBreak),  0);
+    swizzleEverywhere(@selector(dp_appIsJailbroken),   0);
+    swizzleEverywhere(@selector(sakf_isJailBreak),     0);
+    swizzleEverywhere(@selector(mpc_isJailBreak),      0);
+    swizzleEverywhere(@selector(fake_isJailbreak),     1);
+    swizzleEverywhere(@selector(readJailBreakFile),    2);
 }
 
-// 1.2 具体类的检测点（已实测确认）
 %hook NVJailbrokenChecker
 + (BOOL)appIsJailbroken { return NO; }
 + (BOOL)deviceIsJailbroken { return NO; }
@@ -90,7 +94,6 @@ static void patchJailbreakCategories(void) {
 
 %hook BMPClientConfigManager
 + (id)reportJailbrokenAsynDegrade { return nil; }
-+ (id)voiceOverspeedThreshold { return @(9999); }
 %end
 
 %hook BMCSJailbreakManager
@@ -105,9 +108,8 @@ static void patchJailbreakCategories(void) {
 %end
 
 // =============================================================
-//  二、★ 关闭 IoT 摄像头检测系统
+//  二、关闭 IoT 摄像头检测系统（对应安卓 ScheduleControlBlock 配置）
 // =============================================================
-
 %hook BMPIoTTrafficLightConfig
 
 - (long long)MATRIX_DETECT_SWITCH { return 0; }
@@ -118,11 +120,9 @@ static void patchJailbreakCategories(void) {
 - (long long)RETROGRADE_ROUTETAG_SWITCH { return 0; }
 - (long long)OCCUPYROAD_DETECT_SWITCH { return 0; }
 - (long long)TRAFFIC_FENCE_CHECK_SWITCH { return 0; }
-
 - (long long)DYNAMIC_RECORDER_VIDEO_SWITCH { return 0; }
 - (long long)DYNAMIC_RECORDER_BIZ_LIGHTNING_SWITCH { return 0; }
 - (long long)DYNAMIC_RECORDER_BIZ_TRAFFIC_SWITCH { return 0; }
-
 - (long long)MOBILE_NET_SWITCH { return 0; }
 - (long long)WIFI_NET_SWITCH { return 0; }
 - (long long)HYBRID_SCHEDULE_SWITCH { return 0; }
@@ -140,9 +140,38 @@ static void patchJailbreakCategories(void) {
 %end
 
 // =============================================================
-//  三、红绿灯上报链路全拦截
+//  三、★ 调度器拦截（对应安卓 HybridScheduler）
+//  Android: hook HybridScheduler + ScheduleControlBlock -> 任务不派发
+//  iOS    : hook BMPIoTTrafficLightSCBManager          -> 任务不派发
 // =============================================================
+%hook BMPIoTTrafficLightSCBManager
 
+// 生产检测任务
+- (void)produceSCB:(id)scb { }
+
+// 混合模式派发检测（红绿灯/超速/支架 全靠这个入口）
+- (void)trafficLightMixDispatchDetectWithVideoId:(id)videoId
+                                      countOfDay:(long long)countOfDay
+                                            path:(id)path
+                                             fps:(double)fps
+                                            size:(float)size
+                                     collectTime:(double)collectTime
+                                             ext:(id)ext { }
+
+// 融合模式派发
+- (void)dispatchDetectFusionModeWithVideoId:(id)videoId
+                                 countOfDay:(long long)countOfDay
+                              originPathTag:(id)originPathTag
+                                        fps:(double)fps
+                                       size:(float)size
+                                collectTime:(double)collectTime
+                                        ext:(id)ext { }
+
+%end
+
+// =============================================================
+//  四、图像检测与上传拦截（对应安卓 matrix.imagetdetect.*）
+// =============================================================
 %hook BMPIoTTrafficLightDispatchManager
 - (void)dispatchWithSCB:(id)scb finishBlock:(id)block { }
 - (void)matrixDetectWithSCB:(id)scb { }
@@ -156,9 +185,54 @@ static void patchJailbreakCategories(void) {
 %end
 
 // =============================================================
-//  四、红绿灯数据对象兜底
+//  五、支架/手机摆放检测（对应安卓 PhoneHolderCheckModel）
+// =============================================================
+%hook BMPCaptureShelfCheckManager
+- (BOOL)canShelfCheck { return NO; }
+- (BOOL)canCheckVisionResults { return NO; }
+- (void)capture { }
+- (void)startOccCheck:(id)block { }
+- (void)uploadCheckResultWithClean:(BOOL)clean { }
+%end
+
+// =============================================================
+//  六、超速检测（对应安卓 SpeedingDistractionModel + aisafety.*）
+//  Android 做法：让模型不产生结果、让播报不触发
+//  iOS 同做：检测回调置空 + 语音判定关闭 + 模型 sessionId 清空
 // =============================================================
 
+// 6.1 分心+超速检测管理（接收侧）
+%hook BMPHighSpeedingDistractedManager
+- (void)onReceiveRealtimeSpeedingDetect:(id)info { }
+- (void)onReceiveDistractedSpeedingDetect:(id)info { }
+- (void)triggerHighSpeedingDistractedStrategy:(long long)type { }
+- (void)requestStrategyWithType:(long long)type { }
+%end
+
+// 6.2 超速数据模型（对应 SpeedingDistractionModel）
+%hook BMPHighSpeedingDistractedDataItem
+- (id)sessionId { return nil; }
+%end
+
+// 6.3 语音超速播报（对应 aisafety.*）
+%hook BMPSpeechOverSpeedManager
+- (BOOL)shouldRemindSpeed:(unsigned long long)x { return NO; }
+- (void)checkOverspeedState { }
+- (void)receivedIotNoticeForOverspeed:(id)info { }
+%end
+
+// 6.4 语音超速阈值
+%hook BMCSClientConfigItem
+- (long long)voiceOverspeedThreshold { return 9999; }
+%end
+
+%hook BMPClientConfigManager
++ (id)voiceOverspeedThreshold { return @(9999); }
+%end
+
+// =============================================================
+//  七、红绿灯判定数据（对应安卓 trafficsafety.model.*）
+// =============================================================
 %hook MTNVWaitRedLightTimeInfo
 - (BOOL)hasWaitedRedLight { return YES; }
 - (double)speed { return 0.0; }
@@ -188,54 +262,30 @@ static void patchJailbreakCategories(void) {
 %end
 
 // =============================================================
-//  五、超速本地检测拦截
-// =============================================================
-
-%hook BMPSpeechOverSpeedManager
-- (BOOL)shouldRemindSpeed:(unsigned long long)x { return NO; }
-- (void)checkOverspeedState { }
-- (void)receivedIotNoticeForOverspeed:(id)info { }
-%end
-
-%hook BMPHighSpeedingDistractedManager
-- (void)onReceiveRealtimeSpeedingDetect:(id)info { }
-- (void)onReceiveDistractedSpeedingDetect:(id)info { }
-- (void)triggerHighSpeedingDistractedStrategy:(long long)type { }
-- (void)requestStrategyWithType:(long long)type { }
-%end
-
-%hook BMCSClientConfigItem
-- (long long)voiceOverspeedThreshold { return 9999; }
-%end
-
-// =============================================================
-//  六、模拟定位标记清除（运行时，避开 API 可用性告警）
+//  八、模拟定位标记（不影响导航）
 // =============================================================
 static void patchLocationSourceInfo(void) {
     Class c = objc_getClass("CLLocation");
     if (!c) return;
-    SEL sel = NSSelectorFromString(@"sourceInformation");
-    Method m = class_getInstanceMethod(c, sel);
+    Method m = class_getInstanceMethod(c, NSSelectorFromString(@"sourceInformation"));
     if (!m) return;
-    IMP imp = imp_implementationWithBlock(^id(id _s) { return nil; });
-    method_setImplementation(m, imp);
+    method_setImplementation(m, imp_implementationWithBlock(^id(id _s) { return nil; }));
 }
 
 // =============================================================
-//  七、初始化
+//  九、初始化
 // =============================================================
 %ctor {
     @autoreleasepool {
-        NSLog(@"[MRT] v3.0 init start");
+        NSLog(@"[MRT] v4.0 init start (android-parity build)");
         patchJailbreakCategories();
         patchLocationSourceInfo();
-        NSLog(@"[MRT] v3.0 ready. nav untouched");
+        NSLog(@"[MRT] v4.0 ready: scheduler+tasks blocked, nav untouched");
 
-        // 二次修补：部分 Swift/懒加载类的 category 可能延后挂载
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             patchJailbreakCategories();
-            NSLog(@"[MRT] v3.0 lazy patch done");
+            NSLog(@"[MRT] v4.0 lazy patch done");
         });
     }
 }
