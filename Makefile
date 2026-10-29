@@ -1,6 +1,5 @@
 TARGET := iphone:clang:latest:15.0
-ARCHS = arm64 arm64e
-INSTALL_TARGET_PROCESSES = banma_iOS_crowdsource
+ARCHS = arm64
 
 include $(THEOS)/makefiles/common.mk
 
@@ -15,7 +14,7 @@ MeituanRiderTweak_CFLAGS = -fobjc-arc \
 
 MeituanRiderTweak_FRAMEWORKS = Foundation UIKit CoreLocation
 
-include $(THEOS_MAKE_PATH)/tweak.mk
+# 强制产出标准 MH_DYLIB（带 LC_ID_DYLIB），TrollFools 的 ldid 才能识别
+MeituanRiderTweak_LDFLAGS = -install_name @executable_path/Frameworks/MeituanRiderTweak.dylib
 
-after-install::
-	install.exec "killall -9 banma_iOS_crowdsource || true"
+include $(THEOS_MAKE_PATH)/tweak.mk
