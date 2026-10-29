@@ -1,5 +1,5 @@
 // =============================================================
-//  MeituanRiderTweak.xm   v4.0
+//  MeituanRiderTweak.xm   v5.0
 //  目标：美团众包 iOS (banma_iOS_crowdsource) 13.7.9
 //  平台：iOS 16.3 arm64 / TrollStore + TrollFools
 //
@@ -262,6 +262,35 @@ static void patchJailbreakCategories(void) {
 %end
 
 // =============================================================
+//  七点五、★ 注入检测 / dylib 上报拦截
+//  这是专门抓我们自己的类，前几版遗漏
+// =============================================================
+
+// 7.5.1 注入检测核心类
+%hook BMCSSecurityManager
+- (BOOL)checkDyldImageName { return NO; }              // 遍历 dyld 查镜像名 → 永远认为干净
+- (void)reportPlugInfo { }                            // 不上报插件信息
+- (void)reportRepeatDyldDic { }                       // 不上报 dylib 字典
+- (NSMutableDictionary *)repeatDyldDic { return [@{} mutableCopy]; }
+- (BOOL)hasSubsLib { return NO; }                     // 没有 Substrate
+- (BOOL)isRepeatPackage { return NO; }                // 不是重打包
+%end
+
+// 7.5.2 客户端配置项上报（jailDylibs 会随配置一起传给服务器）
+%hook BMPClientConfigItem
+- (NSArray *)jailDylibs { return @[]; }               // 上报的 dylib 列表清空
+- (BOOL)jailCrashSkip { return YES; }                 // 越狱设备跳过崩溃上报
+- (void)setJailDylibs:(NSArray *)x { }                // 阻止被写入
+- (void)setJailDylibsWithNSArray:(NSArray *)x { }
+%end
+
+// 7.5.3 崩溃上报里的镜像列表（崩溃时才会带上，会暴露 dylib 路径）
+%hook BTRDynamicLinker
+- (NSArray *)collectAllBinaryImages { return @[]; }
+- (NSString *)allBinaryImageStringValue { return @""; }
+%end
+
+// =============================================================
 //  八、模拟定位标记（不影响导航）
 // =============================================================
 static void patchLocationSourceInfo(void) {
@@ -277,15 +306,15 @@ static void patchLocationSourceInfo(void) {
 // =============================================================
 %ctor {
     @autoreleasepool {
-        NSLog(@"[MRT] v4.0 init start (android-parity build)");
+        NSLog(@"[MRT] v5.0 init start (android-parity + inject-detect block)");
         patchJailbreakCategories();
         patchLocationSourceInfo();
-        NSLog(@"[MRT] v4.0 ready: scheduler+tasks blocked, nav untouched");
+        NSLog(@"[MRT] v5.0 ready: scheduler+tasks blocked, nav untouched");
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             patchJailbreakCategories();
-            NSLog(@"[MRT] v4.0 lazy patch done");
+            NSLog(@"[MRT] v5.0 lazy patch done");
         });
     }
 }
