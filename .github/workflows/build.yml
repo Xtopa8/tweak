@@ -25,7 +25,6 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/theos/sdks.git /tmp/sdks
           mkdir -p $THEOS/sdks
-          # 优先用 14.5，没有就用最新的
           if [ -d /tmp/sdks/iPhoneOS14.5.sdk ]; then
             cp -R /tmp/sdks/iPhoneOS14.5.sdk $THEOS/sdks/
           else
@@ -34,24 +33,25 @@ jobs:
           fi
           ls $THEOS/sdks/
 
-      - name: Install ldid
-        run: |
-          brew install ldid || true
-          which ldid || echo "ldid missing, will use THEOS ldid"
-
       - name: Build
         run: |
           make clean || true
           make FINALPACKAGE=1 2>&1 | tee build.log
-          echo "--- build result ---"
-          find . -name "*.dylib" -o -name "*.deb" | head -20
+          echo "--- find dylib ---"
+          find .theos -name "*.dylib" -exec ls -la {} \;
 
-      - name: Collect artifacts
+      - name: Sign dylib with ldid
         run: |
+          brew install ldid || true
           mkdir -p /tmp/out
-          find .theos -name "*.dylib" -exec cp {} /tmp/out/ \; 2>/dev/null || true
-          find . -name "*.dylib" -not -path "./.theos/*" -exec cp {} /tmp/out/ \; 2>/dev/null || true
+          for f in $(find .theos -name "MeituanRiderTweak.dylib"); do
+            cp "$f" /tmp/out/
+            ldid -S /tmp/out/MeituanRiderTweak.dylib || echo "ldid failed"
+          done
           ls -la /tmp/out/
+          echo "--- verify LC_ID_DYLIB ---"
+          otool -hv /tmp/out/MeituanRiderTweak.dylib || true
+          otool -D /tmp/out/MeituanRiderTweak.dylib || true
 
       - name: Upload dylib
         uses: actions/upload-artifact@v4
