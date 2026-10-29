@@ -14,11 +14,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install ldid FIRST
+      - name: Install ldid
         run: |
           brew install ldid
           which ldid
-          ldid -v 2>&1 | head -2 || true
 
       - name: Install Theos
         run: |
@@ -31,32 +30,31 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/theos/sdks.git /tmp/sdks
           mkdir -p $THEOS/sdks
-          if [ -d /tmp/sdks/iPhoneOS14.5.sdk ]; then
-            cp -R /tmp/sdks/iPhoneOS14.5.sdk $THEOS/sdks/
-          else
-            SDK=$(ls -d /tmp/sdks/iPhoneOS*.sdk | head -1)
-            cp -R "$SDK" $THEOS/sdks/
-          fi
+          SDK=$(ls -d /tmp/sdks/iPhoneOS*.sdk | head -1)
+          echo "using $SDK"
+          cp -R "$SDK" $THEOS/sdks/
           ls $THEOS/sdks/
 
       - name: Build
         run: |
           make clean || true
           make FINALPACKAGE=1 2>&1 | tee build.log
-          echo "=== dylib files ==="
-          find .theos -name "*.dylib" -exec ls -la {} \;
+          echo "=== find outputs ==="
+          find .theos -name "MeituanRiderTweak.dylib" -exec ls -la {} \;
 
-      - name: Collect and verify
+      - name: Verify and collect
         run: |
           mkdir -p /tmp/out
-          find .theos -name "MeituanRiderTweak.dylib" -exec cp {} /tmp/out/ \;
+          D=$(find .theos -name "MeituanRiderTweak.dylib" | head -1)
+          echo "found: $D"
+          cp "$D" /tmp/out/MeituanRiderTweak.dylib
+          echo "=== file type ==="
+          otool -hv /tmp/out/MeituanRiderTweak.dylib
+          echo "=== install name ==="
+          otool -D /tmp/out/MeituanRiderTweak.dylib || true
+          echo "=== segments ==="
+          otool -l /tmp/out/MeituanRiderTweak.dylib | grep -A4 "segname\|LC_ID_DYLIB" | head -40
           ls -la /tmp/out/
-          if [ -f /tmp/out/MeituanRiderTweak.dylib ]; then
-            echo "=== otool -hv ==="
-            otool -hv /tmp/out/MeituanRiderTweak.dylib
-            echo "=== otool -D ==="
-            otool -D /tmp/out/MeituanRiderTweak.dylib
-          fi
 
       - name: Upload dylib
         uses: actions/upload-artifact@v4
@@ -70,6 +68,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: |
-            build.log
+          path: build.log
           if-no-files-found: ignore
