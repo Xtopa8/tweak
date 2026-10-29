@@ -1,0 +1,69 @@
+name: Build Tweak
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Theos
+        run: |
+          export THEOS=$HOME/theos
+          git clone --recursive --depth 1 https://github.com/theos/theos.git $THEOS
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+          echo "$THEOS/bin" >> $GITHUB_PATH
+
+      - name: Install iOS SDK
+        run: |
+          git clone --depth 1 https://github.com/theos/sdks.git /tmp/sdks
+          mkdir -p $THEOS/sdks
+          # 优先用 14.5，没有就用最新的
+          if [ -d /tmp/sdks/iPhoneOS14.5.sdk ]; then
+            cp -R /tmp/sdks/iPhoneOS14.5.sdk $THEOS/sdks/
+          else
+            SDK=$(ls -d /tmp/sdks/iPhoneOS*.sdk | head -1)
+            cp -R "$SDK" $THEOS/sdks/
+          fi
+          ls $THEOS/sdks/
+
+      - name: Install ldid
+        run: |
+          brew install ldid || true
+          which ldid || echo "ldid missing, will use THEOS ldid"
+
+      - name: Build
+        run: |
+          make clean || true
+          make FINALPACKAGE=1 2>&1 | tee build.log
+          echo "--- build result ---"
+          find . -name "*.dylib" -o -name "*.deb" | head -20
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p /tmp/out
+          find .theos -name "*.dylib" -exec cp {} /tmp/out/ \; 2>/dev/null || true
+          find . -name "*.dylib" -not -path "./.theos/*" -exec cp {} /tmp/out/ \; 2>/dev/null || true
+          ls -la /tmp/out/
+
+      - name: Upload dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeituanRiderTweak-dylib
+          path: /tmp/out/*.dylib
+          if-no-files-found: warn
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
