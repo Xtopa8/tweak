@@ -85,7 +85,7 @@
 // =============================================================
 
 %hook CLLocation
-- (CLLocationSourceInformation *)sourceInformation { return nil; }
+- (CLLocationSourceInformation *)sourceInformation API_AVAILABLE(ios(15.0)) { return nil; }
 %end
 
 // =============================================================
