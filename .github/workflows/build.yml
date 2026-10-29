@@ -14,6 +14,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install ldid FIRST
+        run: |
+          brew install ldid
+          which ldid
+          ldid -v 2>&1 | head -2 || true
+
       - name: Install Theos
         run: |
           export THEOS=$HOME/theos
@@ -37,33 +43,33 @@ jobs:
         run: |
           make clean || true
           make FINALPACKAGE=1 2>&1 | tee build.log
-          echo "--- find dylib ---"
+          echo "=== dylib files ==="
           find .theos -name "*.dylib" -exec ls -la {} \;
 
-      - name: Sign dylib with ldid
+      - name: Collect and verify
         run: |
-          brew install ldid || true
           mkdir -p /tmp/out
-          for f in $(find .theos -name "MeituanRiderTweak.dylib"); do
-            cp "$f" /tmp/out/
-            ldid -S /tmp/out/MeituanRiderTweak.dylib || echo "ldid failed"
-          done
+          find .theos -name "MeituanRiderTweak.dylib" -exec cp {} /tmp/out/ \;
           ls -la /tmp/out/
-          echo "--- verify LC_ID_DYLIB ---"
-          otool -hv /tmp/out/MeituanRiderTweak.dylib || true
-          otool -D /tmp/out/MeituanRiderTweak.dylib || true
+          if [ -f /tmp/out/MeituanRiderTweak.dylib ]; then
+            echo "=== otool -hv ==="
+            otool -hv /tmp/out/MeituanRiderTweak.dylib
+            echo "=== otool -D ==="
+            otool -D /tmp/out/MeituanRiderTweak.dylib
+          fi
 
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
           name: MeituanRiderTweak-dylib
           path: /tmp/out/*.dylib
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: build.log
+          path: |
+            build.log
           if-no-files-found: ignore
